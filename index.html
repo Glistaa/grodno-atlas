@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Атлас Гродно</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/geotiff"></script>
+<script src="https://cdn.jsdelivr.net/npm/georaster"></script>
+<script src="https://cdn.jsdelivr.net/npm/georaster-layer-for-leaflet"></script>
+
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+    }
+  }
+</script>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', sans-serif; }
+#map { width: 100%; height: 100vh; }
+
+.loader {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: opacity 0.5s;
+}
+.loader-content { text-align: center; color: white; }
+.loader-content i { font-size: 64px; animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.bottom-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: rgba(30,30,40,0.95);
+    backdrop-filter: blur(16px);
+    border-radius: 20px 20px 0 0;
+    padding: 12px 16px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+}
+.panel-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    align-items: stretch;
+}
+.panel-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    background: rgba(255,255,255,0.1);
+    padding: 6px 12px;
+    border-radius: 50px;
+    flex: 1 1 auto;
+    justify-content: center;
+}
+.group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #aaa;
+    letter-spacing: 1px;
+    margin-right: 8px;
+    align-self: center;
+}
+.panel-buttons button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 40px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+.panel-buttons button i { font-size: 14px; }
+.panel-buttons button:hover { background: rgba(255,255,255,0.4); transform: translateY(-2px); }
+.panel-buttons button.active { background: #2c3e50; color: white; }
+
+.floating-panel {
+    position: absolute;
+    z-index: 1000;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    padding: 12px 16px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+    display: none;
+    min-width: 220px;
+}
+#filterPanel {
+    bottom: 90px;
+    left: 16px;
+}
+#legendPanel {
+    bottom: 90px;
+    right: 16px;
+}
+#opacityPanel {
+    bottom: 90px;
+    left: 210px;
+}
+.floating-panel h4 {
+    font-size: 13px;
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.filter-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+.legend-dot {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.legend-dot i { font-size: 11px; color: white; }
+.legend-dot.historic { background: #c0392b; transform: rotate(45deg); border-radius: 3px; }
+.legend-dot.church { background: #1e3a5f; border-radius: 50%; }
+.legend-dot.park { background: #27ae60; border-radius: 50%; }
+.legend-dot.bridge { background: #f39c12; border-radius: 4px; }
+.legend-dot.monument { background: #e67e22; border-radius: 50%; }
+.legend-dot.other { background: #3498db; border-radius: 4px; }
+
+.opacity-item {
+    margin-bottom: 12px;
+}
+.opacity-item label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+}
+.opacity-item input {
+    width: 100%;
+    cursor: pointer;
+}
+
+#chartContainer {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 850px;
+    max-height: 85vh;
+    background: white;
+    border-radius: 24px;
+    z-index: 2000;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+    overflow: hidden;
+}
+#chartHeader {
+    background: #2c3e50;
+    padding: 14px 20px;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+#closeButton { cursor: pointer; font-size: 20px; }
+.chart-body { padding: 20px; }
+.compare-select {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+}
+.compare-select select {
+    padding: 6px 12px;
+    border-radius: 30px;
+    border: 1px solid #ccc;
+    font-size: 13px;
+}
+.table-wrapper {
+    max-height: 250px;
+    overflow-y: auto;
+    margin-top: 15px;
+    border: 1px solid #eee;
+    border-radius: 12px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { background: #f5f5f5; padding: 8px; position: sticky; top: 0; }
+td { padding: 6px; text-align: center; border-bottom: 1px solid #eee; }
+
+.popup-content { max-width: 320px; }
+.popup-image { width: 100%; height: 160px; object-fit: cover; }
+.popup-text { padding: 12px; }
+.popup-text h3 { font-size: 16px; margin-bottom: 6px; color: #2c3e50; }
+.popup-text p { font-size: 12px; line-height: 1.4; color: #555; margin-bottom: 6px; }
+.popup-details {
+    background: #f8f9fa;
+    padding: 8px;
+    border-radius: 10px;
+    margin: 8px 0;
+    font-size: 11px;
+}
+.heritage-badge {
+    display: inline-block;
+    background: #c0392b20;
+    color: #c0392b;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 20px;
+}
+.tour-link {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #2c3e50;
+    text-decoration: none;
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+.custom-marker {
+    width: 28px;
+    height: 28px;
+    border: 2px solid white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.marker-historic {
+    background: #c0392b;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+}
+.marker-historic i { transform: rotate(45deg); color: white; font-size: 13px; }
+.marker-church {
+    background: #1e3a5f;
+    border-radius: 50%;
+}
+.marker-church i { color: white; font-size: 13px; }
+.marker-park {
+    background: #27ae60;
+    border-radius: 50%;
+}
+.marker-park i { color: white; font-size: 13px; }
+.marker-bridge {
+    background: #f39c12;
+    border-radius: 4px;
+}
+.marker-bridge i { color: white; font-size: 13px; }
+.marker-monument {
+    background: #e67e22;
+    border-radius: 50%;
+}
+.marker-monument i { color: white; font-size: 13px; }
+.marker-other {
+    background: #3498db;
+    border-radius: 4px;
+}
+.marker-other i { color: white; font-size: 13px; }
+
+.marker-3d {
+    background: #f39c12;
+    border-radius: 4px;
+    transform: none;
+    width: 32px;
+    height: 32px;
+}
+.marker-3d i {
+    color: white;
+    font-size: 18px;
+    margin: 7px;
+}
+
+.leaflet-control-geocoder {
+    margin-top: 12px !important;
+    margin-right: 12px !important;
+}
+#viewer3d {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    max-width: 800px;
+    background: rgba(0,0,0,0.9);
+    border-radius: 24px;
+    z-index: 3000;
+    padding: 10px;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    backdrop-filter: blur(8px);
+}
+#viewer3d-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 5px;
+}
+#close3d {
+    cursor: pointer;
+    background: rgba(255,255,255,0.2);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 18px;
+}
+#threeCanvas {
+    width: 100%;
+    height: 500px;
+    background: #111;
+    border-radius: 16px;
+}
+@media (max-width: 600px) {
+    .panel-buttons button { padding: 6px 12px; font-size: 11px; white-space: normal; }
+    .floating-panel { bottom: 80px; }
+    .group-label { display: none; }
+    #viewer3d { width: 95%; }
+    #threeCanvas { height: 300px; }
+}
+@media (max-width: 800px) {
+    .panel-group { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="loader" id="loader">
+    <div class="loader-content">
+        <i class="fas fa-map-marked-alt"></i>
+        <p>Загрузка атласа Гродно...</p>
+    </div>
+</div>
+
+<div class="bottom-panel">
+    <div class="panel-buttons" id="panelButtons"></div>
+</div>
+
+<div id="filterPanel" class="floating-panel">
+    <h4><i class="fas fa-filter"></i> Фильтр объектов</h4>
+    <div class="filter-group" id="filterGroup">
+        <label><input type="checkbox" value="historic" checked> <i class="fas fa-landmark"></i> Замки и казармы</label>
+        <label><input type="checkbox" value="church" checked> <i class="fas fa-church"></i> Храмы (включая синагогу)</label>
+        <label><input type="checkbox" value="park" checked> <i class="fas fa-tree"></i> Парки</label>
+        <label><input type="checkbox" value="bridge" checked> <i class="fas fa-bridge"></i> Мосты</label>
+        <label><input type="checkbox" value="monument" checked> <i class="fas fa-monument"></i> Памятники</label>
+        <label><input type="checkbox" value="other" checked> <i class="fas fa-building"></i> Иные</label>
+    </div>
+</div>
+
+<div id="legendPanel" class="floating-panel">
+    <h4><i class="fas fa-palette"></i> Легенда</h4>
+    <div class="legend-item"><div class="legend-dot historic"><i class="fas fa-landmark"></i></div><span>Замки, казармы</span></div>
+    <div class="legend-item"><div class="legend-dot church"><i class="fas fa-church"></i></div><span>Храмы, костёлы, синагога</span></div>
+    <div class="legend-item"><div class="legend-dot park"><i class="fas fa-tree"></i></div><span>Парки</span></div>
+    <div class="legend-item"><div class="legend-dot bridge"><i class="fas fa-bridge"></i></div><span>Мосты</span></div>
+    <div class="legend-item"><div class="legend-dot monument"><i class="fas fa-monument"></i></div><span>Памятники</span></div>
+    <div class="legend-item"><div class="legend-dot other"><i class="fas fa-building"></i></div><span>Иные объекты</span></div>
+<div class="legend-item"><div class="legend-dot" style="background:#f39c12; border-radius:4px;"><i class="fas fa-cube"></i></div><span>3D-модель (Фара Витовта)</span></div>
+</div>
+
+<div id="opacityPanel" class="floating-panel">
+    <h4><i class="fas fa-sliders-h"></i> Прозрачность слоёв</h4>
+   <div class="opacity-item">
+    <label>Польша</label>
+    <input type="range" id="opacityPoland" min="0" max="1" step="0.01" value="0.85">
+</div>
+<div class="opacity-item">
+    <label>СССР</label>
+    <input type="range" id="opacityUSSR" min="0" max="1" step="0.01" value="0.85">
+</div>
+</div>
+
+<div id="chartContainer">
+    <div id="chartHeader">
+        <h3><i class="fas fa-chart-line"></i> Статистика Гродно</h3>
+        <div id="closeButton" onclick="closeChart()"><i class="fas fa-times"></i></div>
+    </div>
+    <div class="chart-body">
+        <div class="compare-select" id="compareSelect"></div>
+        <canvas id="statsChart"></canvas>
+        <div class="table-wrapper">
+            <table id="statsTable">
+                <thead><tr><th>Год</th><th>Население</th><th>Занятые</th><th>Койки</th><th>Зарплата</th><th>Пром-сть</th></tr></thead>
+                <tbody>
+                    <tr><td>2022</td><td>368700</td><td>166502</td><td>3731</td><td>1594.6</td><td>7161.1</td></tr>
+                    <tr><td>2021</td><td>367000</td><td>169456</td><td>3739</td><td>1392.8</td><td>6699.5</td></tr>
+                    <tr><td>2020</td><td>365610</td><td>170215</td><td>3739</td><td>1211.5</td><td>5137.4</td></tr>
+                    <tr><td>2019</td><td>364241</td><td>169655</td><td>3739</td><td>1055.6</td><td>5158.0</td></tr>
+                    <tr><td>2018</td><td>361115</td><td>168195</td><td>3759</td><td>964.9</td><td>5065.8</td></tr>
+                    <tr><td>2017</td><td>358717</td><td>169345</td><td>3765</td><td>808.8</td><td>4313.0</td></tr>
+                    <tr><td>2016</td><td>355900</td><td>172208</td><td>3780</td><td>721.5</td><td>4129.7</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="viewer3d">
+    <div id="viewer3d-header">
+        <div id="close3d" onclick="close3D()">✖</div>
+    </div>
+    <canvas id="threeCanvas"></canvas>
+</div>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    let scene, camera, renderer, controls, currentModel;
+    const canvas3d = document.getElementById('threeCanvas');
+    
+    function init3D() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x333333);
+    camera = new THREE.PerspectiveCamera(45, canvas3d.clientWidth / canvas3d.clientHeight, 0.1, 1000);
+    camera.position.set(2, 2, 5);
+    camera.lookAt(0, 0, 0);
+    
+    renderer = new THREE.WebGLRenderer({ canvas: canvas3d, alpha: false, antialias: true });
+    renderer.setSize(canvas3d.clientWidth, canvas3d.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(0x111122, 1);
+    
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enableZoom = true;
+    
+    // Мягкое освещение без резких бликов
+    const ambientLight = new THREE.AmbientLight(0x666666, 0.8);
+    scene.add(ambientLight);
+    
+    const mainLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    mainLight.position.set(1, 2, 1);
+    scene.add(mainLight);
+    
+    const fillLight = new THREE.DirectionalLight(0x88aaff, 0.4);
+    fillLight.position.set(-1, 1, 1);
+    scene.add(fillLight);
+    
+    // Небольшой свет снизу для подсветки теней
+    const rimLight = new THREE.PointLight(0xaa8866, 0.3);
+    rimLight.position.set(0, -1, 0);
+    scene.add(rimLight);
+    
+    animate();
+    }
+    
+    function animate() {
+        if (renderer) {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    }
+    
+    function loadModel(url) {
+        if (currentModel) scene.remove(currentModel);
+        const loader = new GLTFLoader();
+        loader.load(url, (gltf) => {
+            currentModel = gltf.scene;
+            scene.add(currentModel);
+            const box = new THREE.Box3().setFromObject(currentModel);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = 3 / maxDim;
+            currentModel.scale.set(scale, scale, scale);
+            currentModel.position.sub(center.clone().multiplyScalar(scale));
+            camera.position.set(2, 2, 4);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }, undefined, (error) => {
+            console.error(error);
+            alert('Не удалось загрузить 3D-модель');
+        });
+    }
+    
+    window.show3DModel = function(modelUrl) {
+        const viewer = document.getElementById('viewer3d');
+        viewer.style.display = 'block';
+        if (!renderer) init3D();
+        setTimeout(() => {
+            if (renderer) {
+                renderer.setSize(canvas3d.clientWidth, canvas3d.clientHeight);
+                loadModel(modelUrl);
+            }
+        }, 100);
+    };
+    
+    window.close3D = function() {
+        document.getElementById('viewer3d').style.display = 'none';
+        if (currentModel) {
+            scene.remove(currentModel);
+            currentModel = null;
+        }
+    };
+    
+    window.addEventListener('resize', () => {
+        if (renderer && canvas3d.clientWidth && canvas3d.clientHeight) {
+            camera.aspect = canvas3d.clientWidth / canvas3d.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvas3d.clientWidth, canvas3d.clientHeight);
+        }
+    });
+</script>
+
+<script>
+setTimeout(() => {
+    let l = document.getElementById('loader');
+    l.style.opacity = '0';
+    setTimeout(() => l.remove(), 500);
+}, 600);
+
+var map = L.map('map').setView([53.6693, 23.8131], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+L.Control.geocoder({ defaultMarkGeocode: false }).on('markgeocode', function(e) {
+    if (e.geocode.bbox) map.fitBounds(e.geocode.bbox);
+    else map.setView(e.geocode.center, 15);
+}).addTo(map);
+
+L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
+
+// ---------- Исторические слои ----------
+var polandLayer = L.layerGroup();
+var ussrLayer = L.layerGroup();
+var polandOverlay = null;
+var ussrOverlay = null;
+
+function loadGeoreferencedImage(imageUrl, worldFileUrl, targetLayer, opacity, saveTo) {
+    fetch(worldFileUrl)
+        .then(res => res.text())
+        .then(text => {
+            const nums = text.trim().split(/\s+/);
+            if (nums.length < 6) throw new Error('JGW bad');
+            const pixelX = parseFloat(nums[0]);
+            const pixelY = parseFloat(nums[3]);
+            const centerX = parseFloat(nums[4]);
+            const centerY = parseFloat(nums[5]);
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            img.onload = () => {
+                const left = centerX - pixelX / 2;
+                const top = centerY - pixelY / 2;
+                const right = centerX + pixelX * (img.width - 0.5);
+                const bottom = centerY + pixelY * (img.height - 0.5);
+                const bounds = [[top, left], [bottom, right]];
+                const overlay = L.imageOverlay(imageUrl, bounds, { opacity: opacity });
+                overlay.addTo(targetLayer);
+                if (saveTo === 'poland') polandOverlay = overlay;
+                else if (saveTo === 'ussr') ussrOverlay = overlay;
+                console.log(`Загружено: ${imageUrl}`);
+            };
+            img.src = imageUrl;
+        })
+        .catch(err => console.error('Ошибка JGW:', err));
+}
+
+loadGeoreferencedImage('map/poland.jpg', 'map/poland.jgw', polandLayer, 0.85, 'poland');
+loadGeoreferencedImage('map/ussr.jpg', 'map/ussr.jgw', ussrLayer, 0.85, 'ussr');
+
+document.getElementById('opacityPoland').addEventListener('input', function(e) {
+    if (polandOverlay) polandOverlay.setOpacity(parseFloat(e.target.value));
+});
+document.getElementById('opacityUSSR').addEventListener('input', function(e) {
+    if (ussrOverlay) ussrOverlay.setOpacity(parseFloat(e.target.value));
+});
+
+// ---------- МЕТКИ (полные описания) ----------
+var places = [
+    { id: 1, name: "Александровские казармы", lat: 53.6615825, lng: 23.7756928, type: "historic", year: "1890-1900", architect: "Военное ведомство", style: "-", desc: "Комплекс кирпичных зданий конца XIX — начала XX века, ставший объектом масштабной реконструкции. Ранее входившие в состав военного городка № 11. В 2024–2025 годах на их месте возведен премиальный жилой комплекс «Александровский», где исторические фасады были реконструированы и перестроены под современные квартиры.", img: "images/new/kaz.jpg", tour: "https://yandex.ru/maps/?text=Александровские+казармы+Гродно" },
+    { id: 2, name: "Касцёл Святога Францішка Ксаверыя", lat: 53.6781065, lng: 23.8315543, type: "church", year: "1705-1738", architect: "Ян Кристиан Шмидт", style: "Барокко, рококо", desc: "Кафедральный собор Святого Франциска Ксавьера. Католический собор, собор Гродненской епархии, выдающийся памятник архитектуры и декоративно-монументального искусства позднего барокко и рококо. Первоначальный облик церкви можно представить по росписи внутри здания. Здание ориентировано таким образом, что алтарь обращен на восток, а главный фасад — на площадь. Летом 2006 года в алтаре церкви произошел пожар, в результате которого полностью сгорели две статуи. Причиной пожара, согласно официальной версии, стала неисправность электропроводки. С 2009 года ведутся активные работы по восстановлению сгоревшей части алтаря.", img: "images/new/kostel.jpg", tour: "https://yandex.ru/maps/?text=Костёл+Ксаверыя+Гродно" },
+    { id: 3, name: "Старый мост", lat: 53.6724602, lng: 23.8267003, type: "bridge", year: "XVI век", architect: "неизвестен", style: "Инженерный", desc: "Старый мост — автодорожный мост через Неман. Расположен в створе улиц Мостовой и Горновых. 16 января 2008 года Старый мост был закрыт на реконструкцию. После реконструкции пропускная способность моста составила 3 тысячи транспортных единиц в час.", img: "images/new/most.jpg", tour: "https://yandex.ru/maps/?text=Старый+мост+Гродно" },
+    { id: 4, name: "Старый замок", lat: 53.6772017, lng: 23.8230478, type: "historic", year: "XI-XIX вв", architect: "разные", style: "Оборонительная архитектура", desc: "Старый замок в Гродно — памятник архитектуры в Беларуси, комплекс оборонительных сооружений, культовых и светских зданий XI—XIX веков, расположенный в историческом центре Гродно. С 2015 г. ведётся его масштабная реконструкция в предполагаемых формах конца XVI века по проекту Владимира Бочкова, руководившего прежде реставрацией замка в Несвиже.", img: "images/new/str.jpg", tour: "https://yandex.ru/maps/?text=Старый+замок+Гродно" },
+    { id: 5, name: "Новый замок", lat: 53.6763662, lng: 23.8250662, type: "historic", year: "1737-1752", architect: "К. Пёппельман", style: "Барокко", desc: "Новый замок в Гродно — новый королевский дворец, построенный в Гродно, напротив старого дворца, в 1737—1752 годах во время правления польского короля и великого князя литовского Августа III как летняя резиденция польских королей и великих князей литовских. Плато Нового замка было заселено уже в глубокой древности. На этом участке обнаружены и остатки строений из плинфы. В эпоху Гродненского княжества при князьях Всеволодковичах, на этой территории, видимо, находился один из посадов. Считается, что жители посада имели свою каменную церковь уже в XII веке.", img: "images/new/nov.jpg", tour: "https://yandex.ru/maps/?text=Новый+замок+Гродно" },
+    { id: 6, name: "Коложская Борисо-Глебская церковь", lat: 53.6783662, lng: 23.8185667, type: "church", year: "XII век", architect: "неизвестен", style: "Древнерусское зодчество", desc: "Борисоглебская церковь (бел. Барысаглебская царква на Каложы), также Коложская церковь, Коложа — одна из древнейших сохранившихся церквей Древней Руси, уникальный памятник чёрнорусского зодчества. Расположена на территории современной Беларуси в Гродно, на высоком берегу реки Неман. Является самым западным из сохранившихся древнерусских храмов. В 2017—2018 годах прошла реставрация храма. В 2019 году Коложская церковь была внесена в Предварительный список всемирного наследия Юнеско.", img: "images/new/cer.jpg", tour: "https://yandex.ru/maps/?text=Коложская+церковь+Гродно" },
+    { id: 7, name: "Лютеранская церковь", lat: 53.6870542, lng: 23.8404586, type: "church", year: "1843", architect: "неизвестен", style: "Неоготика", desc: "Лютеранская церковь Святого Иоанна — протестантская кирха, расположенная на улице 1 Мая, 5. Впервые упоминается в 1793 году. Памятник архитектуры в стиле неоготики. Кирха включена в Государственный список историко-культурных ценностей Республики Беларусь. В конце 2013 года началась реставрация здания, которая закончилась в 2015 году. Был воссоздан главный 12-метровый шпиль и 10 меньших шпилей с крестами.", img: "images/new/lut.jpg", tour: "https://yandex.ru/maps/?text=Лютеранская+кирха+Гродно" },
+    { id: 8, name: "Большая Хоральная Синагога", lat: 53.6790493, lng: 23.8250646, type: "church", year: "XVI век", architect: "С. Гузовский", style: "Мавританский", desc: "Большая хоральная синагога — действующая синагога в центре города (улица Большая Троицкая, 59A). Ведёт свою историю с XVI века. В 2011 году в синагоге началась реконструкция. Сейчас там происходят службы, проводятся культурные мероприятия и встречи еврейской общины.", img: "images/new/sin.jpg", tour: "https://yandex.ru/maps/?text=Синагога+Гродно" },
+    { id: 9, name: "Покровский собор", lat: 53.6844577, lng: 23.8414097, type: "church", year: "1904-1907", architect: "М. Прозоров", style: "Русский", desc: "Собор Покрова Пресвятой Богородицы (Покровский собор) — православный храм, кафедральный собор Гродненской епархии Белорусской православной церкви. Сооружён в начале XX века в русском стиле. 14 октября 2010 года возле собора была торжественно открыта бронзовая скульптура Божьей Матери, автором которой является белорусский скульптор Владимир Пантелеев.", img: "images/new/pol.jpg", tour: "https://yandex.ru/maps/?text=Покровский+собор+Гродно" },
+    { id: 10, name: "Парк Жилибера", lat: 53.6851093, lng: 23.8377071, type: "park", year: "1775", architect: "Ж.Э. Жилибер", style: "Французский парк", desc: "Парк имени Жана Эммануэля Жилибера находится в центре города Гродно. Ж. Э. Жилибер был французским учёным-медиком и просветителем. С помощью мецената Антония Тизенгауна, он основал первое высшее заведение на территории Беларуси — Гродненскую медицинскую академию. Также он является одним из создателей акушерской школы, гродненского госпиталя и создал ботанический сад. Сад был основан 8 апреля 1775 году и являлся наглядным учебным пособием в академии. Через три года после основания сада он считался одним из лучших в Европе и насчитывал 2000 видов растений, многие из которых были редкими. Когда Жилиберу пришлось покинуть город, уход за садом перешёл в руки властей города. На сегодняшний день парк довольно сильно отличается от своего первого варианта, заложенного Жаном Жилибером.", img: "images/new/park.jpg", tour: "https://yandex.ru/maps/?text=Парк+Жилибера+Гродно" },
+    { id: 11, name: "Коложский парк", lat: 53.680896, lng: 23.819220, type: "park", year: "XX век", architect: "неизвестен", style: "Пейзажный", desc: "Живописный парк на берегу Немана рядом с Коложской церковью. Прекрасное место для прогулок, откуда открывается вид на реку и исторический центр.", img: "images/new/kall.jpg", tour: "https://yandex.ru/maps/?text=Коложский+парк+Гродно" },
+    { id: 12, name: "Пожарная башня (Каланча)", lat: 53.677831856544614, lng: 23.82481002964896, type: "other", year: "XIX век", architect: "неизвестен", style: "Кирпичный", desc: "Одна из визитных карточек Гродно. Построена как пожарная каланча, сейчас — памятник архитектуры. С неё открывается отличный вид на исторический центр.", img: "images/new/paj.jpg", tour: "https://yandex.ru/maps/?text=Пожарная+башня+Гродно" },
+    { id: 13, name: "Дом купца Муравьёва", lat: 53.678824166141794, lng: 23.830078529330496, type: "other", year: "XIX век", architect: "неизвестен", style: "Классицизм", desc: "Памятник гражданской архитектуры. Образец купеческого особняка XIX века с богатой лепниной.", img: "images/new/mur.jpg", tour: "https://yandex.ru/maps/?text=Дом+купца+Муравьёва+Гродно" },
+    { id: 14, name: "Лямус", lat: 53.676083282272984, lng: 23.83632948880578, type: "other", year: "XVII-XVIII вв", architect: "неизвестен", style: "Деревянное зодчество", desc: "Уникальный образец деревянного зодчества, построенный без единого гвоздя. Входит в комплекс бывшего бригитского монастыря.", img: "images/new/lam.jpg", tour: "https://yandex.ru/maps/?text=Лямус+Гродно" },
+    { id: 15, name: "Музей истории религии", lat: 53.67774105403566, lng: 23.826541222793526, type: "other", year: "XVIII в.", architect: "неизвестен", style: "Барокко", desc: "Уникальный музей, единственный в Беларуси. Расположен в бывшем дворце епископов. Рассказывает об истории религий на территории Беларуси.", img: "images/new/reg.jpg", tour: "https://yandex.ru/maps/?text=Музей+истории+религии+Гродно" },
+    { id: 16, name: "Драматический театр", lat: 53.675370894898606, lng: 23.827478018806584, type: "other", year: "1947", architect: "советский", style: "Неоклассицизм", desc: "Один из старейших театров Беларуси. Важнейшее культурное учреждение города.", img: "images/new/dra.jpg", tour: "https://yandex.ru/maps/?text=Гродненский+драматический+театр" },
+    { id: 17, name: "Театр кукол", lat: 53.68541721772639, lng: 23.836352528865273, type: "other", year: "1980", architect: "советский", style: "Современный", desc: "Знаменитый театр кукол, который находится в историческом здании. Спектакли для детей и взрослых.", img: "images/new/kuk.jpg", tour: "https://yandex.ru/maps/?text=Театр+кукол+Гродно" },
+    { id: 18, name: "Памятник 850-летия Гродно", lat: 53.680822157640975, lng: 23.81650497888998, type: "monument", year: "2008", architect: "А. Дранец", style: "Монументальный", desc: "Памятник, установленный в Коложском парке в честь 850-летия первого упоминания Гродно в летописях.", img: "images/new/grg.jpg", tour: "https://yandex.ru/maps/?text=Памятник+850-летия+Гродно" },
+    { id: 19, name: "Скульптура «Встреча»", lat: 53.671092479848184, lng: 23.82565562938359, type: "monument", year: "2011", architect: "В. Пантелеев", style: "Современная", desc: "Композиция из двух фигур — мужчины и женщины, символизирующих встречу. Расположена на ул. Дарвина.", img: "images/new/vst.jpg", tour: "https://yandex.ru/maps/?text=Скульптура+Встреча+Гродно" },
+    { id: 20, name: "Горожанин XVIII века", lat: 53.68597496896395, lng: 23.835784408098547, type: "monument", year: "2010", architect: "В. Пантелеев", style: "Бронзовая", desc: "Персонаж в историческом костюме XVIII века. Находится у Нового замка. Одна из самых фотографируемых скульптур Гродно.", img: "images/new/gar.jpg", tour: "https://yandex.ru/maps/?text=Горожанин+XVIII+века+Гродно" },
+    { id: 21, name: "Фара Витовта", lat: 53.67873278683889, lng: 23.828440709183926, type: "church", year: "XIV век", architect: "неизвестен", style: "Готика", desc: "Исторический храм Гродно, известный как Фара Витовта. Один из символов старого города.", img: "images/new/fara.jpg", tour: "https://yandex.ru/maps/?text=Фара+Витовта+Гродно", model3d: "models/original.glb" }
+];
+
+function getIcon(p) {
+    // если у объекта есть поле model3d — используем специальную иконку
+    if (p.model3d) {
+        return L.divIcon({ className: 'custom-marker marker-3d', html: '<i class="fas fa-cube"></i>', iconSize: [32,32], popupAnchor: [0,-16] });
+    }
+    if (p.type === 'historic') return L.divIcon({ className: 'custom-marker marker-historic', html: '<i class="fas fa-landmark"></i>', iconSize: [28,28], popupAnchor: [0,-14] });
+    if (p.type === 'church') return L.divIcon({ className: 'custom-marker marker-church', html: '<i class="fas fa-church"></i>', iconSize: [28,28], popupAnchor: [0,-14] });
+    if (p.type === 'park') return L.divIcon({ className: 'custom-marker marker-park', html: '<i class="fas fa-tree"></i>', iconSize: [28,28], popupAnchor: [0,-14] });
+    if (p.type === 'bridge') return L.divIcon({ className: 'custom-marker marker-bridge', html: '<i class="fas fa-bridge"></i>', iconSize: [28,28], popupAnchor: [0,-14] });
+    if (p.type === 'monument') return L.divIcon({ className: 'custom-marker marker-monument', html: '<i class="fas fa-monument"></i>', iconSize: [28,28], popupAnchor: [0,-14] });
+    return L.divIcon({ className: 'custom-marker marker-other', html: '<i class="fas fa-building"></i>', iconSize: [28,28], popupAnchor: [0,-14] });
+}
+function makePopup(p) {
+    const modelBtn = p.model3d ? `<br><button class="tour-link" onclick="show3DModel('${p.model3d}')"><i class="fas fa-cube"></i> 3D-модель</button>` : '';
+    return `<div class="popup-content"><img src="${p.img}" class="popup-image" onerror="this.src='https://via.placeholder.com/320x160?text=${p.name}'"><div class="popup-text"><h3>${p.name}</h3><div class="popup-details"><i class="fas fa-calendar"></i> ${p.year} | <i class="fas fa-user"></i> ${p.architect}<br><i class="fas fa-palette"></i> ${p.style}</div><p>${p.desc}</p><div class="heritage-badge"><i class="fas fa-medal"></i> Культурное наследие</div><a href="${p.tour}" target="_blank" class="tour-link"><i class="fas fa-vr-cardboard"></i> Виртуальный тур</a>${modelBtn}</div></div>`;
+}
+
+var markersLayer = L.layerGroup();
+var markers = [];
+places.forEach(p => {
+    let m = L.marker([p.lat, p.lng], { icon: getIcon(p) }).bindPopup(makePopup(p));
+    m.type = p.type;
+    markers.push(m);
+    markersLayer.addLayer(m);
+
+});
+markersLayer.addTo(map);
+
+function updateFilter() {
+    let active = Array.from(document.querySelectorAll('#filterGroup input:checked')).map(cb => cb.value);
+    markersLayer.clearLayers();
+    markers.forEach(m => { if (active.includes(m.type)) markersLayer.addLayer(m); });
+}
+document.querySelectorAll('#filterGroup input').forEach(cb => cb.addEventListener('change', updateFilter));
+
+function setActiveLayer(layer) {
+    map.removeLayer(markersLayer);
+    map.removeLayer(ussrLayer);
+    map.removeLayer(polandLayer);
+    map.addLayer(layer);
+}
+
+// ---------- Нижняя панель ----------
+var panelDiv = document.getElementById('panelButtons');
+function addGroup(label) {
+    let groupDiv = document.createElement('div');
+    groupDiv.className = 'panel-group';
+    let span = document.createElement('span');
+    span.className = 'group-label';
+    span.innerText = label;
+    groupDiv.appendChild(span);
+    panelDiv.appendChild(groupDiv);
+    return groupDiv;
+}
+function addBtnToGroup(group, icon, label, onClick, active = false) {
+    let btn = document.createElement('button');
+    if (icon) btn.innerHTML = `<i class="fas ${icon}"></i> ${label}`;
+    else btn.innerHTML = label;
+    btn.onclick = onClick;
+    if (active) btn.classList.add('active');
+    group.appendChild(btn);
+    return btn;
+}
+
+let groupLayers = addGroup('СЛОИ');
+addBtnToGroup(groupLayers, null, 'Современность', () => setActiveLayer(markersLayer), true);
+addBtnToGroup(groupLayers, null, 'СССР', () => setActiveLayer(ussrLayer));
+addBtnToGroup(groupLayers, null, 'Польша', () => setActiveLayer(polandLayer));
+
+let groupStats = addGroup('СТАТИСТИКА');
+addBtnToGroup(groupStats, 'fa-users', 'Население', () => showChart('population'));
+addBtnToGroup(groupStats, 'fa-ruble-sign', 'Зарплата', () => showChart('salary'));
+addBtnToGroup(groupStats, 'fa-industry', 'Пром-сть', () => showChart('industry'));
+addBtnToGroup(groupStats, 'fa-hospital', 'Больницы', () => showChart('hospital'));
+addBtnToGroup(groupStats, 'fa-graduation-cap', 'Образование', () => showChart('education'));
+addBtnToGroup(groupStats, 'fa-chart-line', 'Сравнить', () => showChart('compare'));
+
+let groupActions = addGroup('ДЕЙСТВИЯ');
+let filterVisible = false, legendVisible = false, opacityVisible = false;
+addBtnToGroup(groupActions, 'fa-filter', 'Фильтр', () => {
+    filterVisible = !filterVisible;
+    document.getElementById('filterPanel').style.display = filterVisible ? 'block' : 'none';
+});
+addBtnToGroup(groupActions, 'fa-palette', 'Легенда', () => {
+    legendVisible = !legendVisible;
+    document.getElementById('legendPanel').style.display = legendVisible ? 'block' : 'none';
+});
+addBtnToGroup(groupActions, 'fa-sliders-h', 'Прозрачность', () => {
+    opacityVisible = !opacityVisible;
+    document.getElementById('opacityPanel').style.display = opacityVisible ? 'block' : 'none';
+});
+addBtnToGroup(groupActions, 'fa-location-dot', 'В центр', () => map.setView([53.6693, 23.8131], 13));
+
+// ---------- СТАТИСТИКА (две оси для сравнения) ----------
+let statsChart = null;
+var stats = {
+    population: [355900,358717,361115,364241,365610,367000,368700],
+    salary: [721.5,808.8,964.9,1055.6,1211.5,1392.8,1594.6],
+    industry: [4129.7,4313.0,5065.8,5158.0,5137.4,6699.5,7161.1],
+    hospital: [3780,3765,3759,3739,3739,3739,3731],
+    education: [49,48,47,48,48,47,47]
+};
+var years = ['2016','2017','2018','2019','2020','2021','2022'];
+var titles = { population: 'Население', salary: 'Зарплата (BYN)', industry: 'Пром-сть (млн BYN)', hospital: 'Больничные койки', education: 'Учреждения образования' };
+
+function showChart(type) {
+    let container = document.getElementById('chartContainer');
+    container.style.display = 'block';
+    let compareDiv = document.getElementById('compareSelect');
+    let ctx = document.getElementById('statsChart').getContext('2d');
+    if (statsChart) statsChart.destroy();
+
+    if (type === 'compare') {
+        compareDiv.innerHTML = `
+            <span>Показатель 1:</span>
+            <select id="compare1">
+                <option value="population">Население</option>
+                <option value="salary">Зарплата</option>
+                <option value="industry">Промышленность</option>
+                <option value="hospital">Больницы</option>
+                <option value="education">Образование</option>
+            </select>
+            <span>Показатель 2:</span>
+            <select id="compare2">
+                <option value="salary">Зарплата</option>
+                <option value="industry">Промышленность</option>
+                <option value="population">Население</option>
+                <option value="hospital">Больницы</option>
+                <option value="education">Образование</option>
+            </select>
+            <button onclick="drawCompare()">Построить</button>
+        `;
+        drawCompare();
+    } else {
+        compareDiv.innerHTML = '';
+        statsChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: years, datasets: [{ label: titles[type], data: stats[type], borderColor: '#3498db', backgroundColor: '#3498db20', fill: true, tension: 0.3 }] },
+            options: { responsive: true }
+        });
+    }
+}
+
+function drawCompare() {
+    let val1 = document.getElementById('compare1').value;
+    let val2 = document.getElementById('compare2').value;
+    let ctx = document.getElementById('statsChart').getContext('2d');
+    if (statsChart) statsChart.destroy();
+    let data1 = stats[val1];
+    let data2 = stats[val2];
+    let label1 = titles[val1];
+    let label2 = titles[val2];
+    // Цвета
+    const color1 = '#3498db';
+    const color2 = '#e67e22';
+    
+    statsChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: years, datasets: [
+            { label: label1, data: data1, borderColor: color1, backgroundColor: 'transparent', yAxisID: 'y', borderWidth: 3 },
+            { label: label2, data: data2, borderColor: color2, backgroundColor: 'transparent', yAxisID: 'y1', borderWidth: 3, borderDash: [5,5] }
+        ] },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { 
+                legend: { position: 'top' },
+                tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}` } }
+            },
+            scales: {
+                y: { title: { display: true, text: label1, color: color1 }, ticks: { color: color1 }, grid: { color: color1 + '40' } },
+                y1: { position: 'right', title: { display: true, text: label2, color: color2 }, ticks: { color: color2 }, grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+}
+
+function closeChart() { document.getElementById('chartContainer').style.display = 'none'; if(statsChart) statsChart.destroy(); }
+
+setActiveLayer(markersLayer);
+</script>
+</body>
+</html>
